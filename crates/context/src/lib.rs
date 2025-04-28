@@ -14,7 +14,9 @@ use calimero_context_config::client::utils::humanize_iter;
 use calimero_context_config::client::{AnyTransport, Client as ExternalClient};
 use calimero_context_config::repr::{Repr, ReprBytes, ReprTransmute};
 use calimero_context_config::types::{
-    Application as ApplicationConfig, ApplicationMetadata as ApplicationMetadataConfig, ApplicationSource as ApplicationSourceConfig, Capability, ContextIdentity, ContextStorageEntry, ProposalId
+    Application as ApplicationConfig, ApplicationMetadata as ApplicationMetadataConfig,
+    ApplicationSource as ApplicationSourceConfig, Capability, ContextIdentity, ContextStorageEntry,
+    ProposalId,
 };
 use calimero_context_config::{Proposal, ProposalAction, ProposalWithApprovals};
 use calimero_network::client::NetworkClient;
@@ -1616,7 +1618,7 @@ impl ContextManager {
         public_key: PublicKey,
     ) -> EyreResult<bool> {
         let handle = self.store.handle();
-        
+
         let Some(context_config) = handle.get(&ContextConfigKey::new(context_id))? else {
             return Ok(false);
         };
@@ -1742,5 +1744,4 @@ impl ContextManager {
 
         Ok(())
     }
-
 }
