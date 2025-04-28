@@ -14,8 +14,7 @@ use calimero_context_config::client::utils::humanize_iter;
 use calimero_context_config::client::{AnyTransport, Client as ExternalClient};
 use calimero_context_config::repr::{Repr, ReprBytes, ReprTransmute};
 use calimero_context_config::types::{
-    Application as ApplicationConfig, ApplicationMetadata as ApplicationMetadataConfig,
-    ApplicationSource as ApplicationSourceConfig, ContextIdentity, ContextStorageEntry, ProposalId,
+    Application as ApplicationConfig, ApplicationMetadata as ApplicationMetadataConfig, ApplicationSource as ApplicationSourceConfig, Capability, ContextIdentity, ContextStorageEntry, ProposalId
 };
 use calimero_context_config::{Proposal, ProposalAction, ProposalWithApprovals};
 use calimero_network::client::NetworkClient;
@@ -1610,4 +1609,138 @@ impl ContextManager {
 
         Ok(aliases)
     }
+
+    pub async fn has_invite_permission(
+        &self,
+        context_id: ContextId,
+        public_key: PublicKey,
+    ) -> EyreResult<bool> {
+        let handle = self.store.handle();
+        
+        let Some(context_config) = handle.get(&ContextConfigKey::new(context_id))? else {
+            return Ok(false);
+        };
+
+        // Check if user has ManageMembers capability
+        let privileges = self
+            .config_client
+            .query::<ContextConfigEnv>(
+                context_config.protocol.as_ref().into(),
+                context_config.network.as_ref().into(),
+                context_config.contract.as_ref().into(),
+            )
+            .privileges(
+                context_id.rt().expect("infallible conversion"),
+                &[public_key.rt().expect("infallible conversion")],
+            )
+            .await?;
+
+        Ok(privileges
+            .values()
+            .flatten()
+            .any(|cap| *cap == Capability::ManageMembers))
+    }
+
+    pub async fn grant_permission(
+        &self,
+        context_id: ContextId,
+        granter_id: PublicKey,
+        grantee_id: PublicKey,
+        capability: Capability,
+    ) -> EyreResult<()> {
+        let handle = self.store.handle();
+
+        let Some(context_config) = handle.get(&ContextConfigKey::new(context_id))? else {
+            bail!("Context not found");
+        };
+
+        let Some(ContextIdentityValue {
+            private_key: Some(signing_key),
+            ..
+        }) = handle.get(&ContextIdentityKey::new(context_id, granter_id))?
+        else {
+            bail!("No private key found for granter");
+        };
+
+        let nonce = self
+            .config_client
+            .query::<ContextConfigEnv>(
+                context_config.protocol.as_ref().into(),
+                context_config.network.as_ref().into(),
+                context_config.contract.as_ref().into(),
+            )
+            .fetch_nonce(
+                context_id.rt().expect("infallible conversion"),
+                granter_id.rt().expect("infallible conversion"),
+            )
+            .await?
+            .ok_or_eyre("Granter is not a member")?;
+
+        self.config_client
+            .mutate::<ContextConfigEnv>(
+                context_config.protocol.as_ref().into(),
+                context_config.network.as_ref().into(),
+                context_config.contract.as_ref().into(),
+            )
+            .grant(
+                context_id.rt().expect("infallible conversion"),
+                &[(grantee_id.rt().expect("infallible conversion"), capability)],
+            )
+            .send(signing_key, nonce)
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn revoke_permission(
+        &self,
+        context_id: ContextId,
+        revoker_id: PublicKey,
+        revokee_id: PublicKey,
+        capability: Capability,
+    ) -> EyreResult<()> {
+        let handle = self.store.handle();
+
+        let Some(context_config) = handle.get(&ContextConfigKey::new(context_id))? else {
+            bail!("Context not found");
+        };
+
+        let Some(ContextIdentityValue {
+            private_key: Some(signing_key),
+            ..
+        }) = handle.get(&ContextIdentityKey::new(context_id, revoker_id))?
+        else {
+            bail!("No private key found for revoker");
+        };
+
+        let nonce = self
+            .config_client
+            .query::<ContextConfigEnv>(
+                context_config.protocol.as_ref().into(),
+                context_config.network.as_ref().into(),
+                context_config.contract.as_ref().into(),
+            )
+            .fetch_nonce(
+                context_id.rt().expect("infallible conversion"),
+                revoker_id.rt().expect("infallible conversion"),
+            )
+            .await?
+            .ok_or_eyre("Revoker is not a member")?;
+
+        self.config_client
+            .mutate::<ContextConfigEnv>(
+                context_config.protocol.as_ref().into(),
+                context_config.network.as_ref().into(),
+                context_config.contract.as_ref().into(),
+            )
+            .revoke(
+                context_id.rt().expect("infallible conversion"),
+                &[(revokee_id.rt().expect("infallible conversion"), capability)],
+            )
+            .send(signing_key, nonce)
+            .await?;
+
+        Ok(())
+    }
+
 }

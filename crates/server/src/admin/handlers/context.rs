@@ -8,3 +8,5 @@ pub mod get_contexts;
 pub mod invite_to_context;
 pub mod join_context;
 pub mod update_context_application;
+pub mod grant_permission;
+pub mod revoke_permission;
