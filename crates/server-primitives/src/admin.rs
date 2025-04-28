@@ -837,8 +837,6 @@ pub struct GetNumberOfProposalApprovalsResponse {
     pub data: ProposalWithApprovals,
 }
 
-// Add near the other request/response types in the Context API section
-
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GrantPermissionRequest {

@@ -12,7 +12,6 @@ pub async fn handler(
     Extension(state): Extension<Arc<AdminState>>,
     Json(req): Json<InviteToContextRequest>,
 ) -> impl IntoResponse {
-    // Check if inviter has permission to invite
     let has_permission = state
         .ctx_manager
         .has_invite_permission(req.context_id, req.inviter_id)

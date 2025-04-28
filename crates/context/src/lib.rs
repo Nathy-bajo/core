@@ -1623,7 +1623,6 @@ impl ContextManager {
             return Ok(false);
         };
 
-        // Check if user has ManageMembers capability
         let privileges = self
             .config_client
             .query::<ContextConfigEnv>(
