@@ -22,7 +22,7 @@ pub async fn handler(
         Ok(false) => {
             return ApiError {
                 status_code: StatusCode::FORBIDDEN,
-                message: "User does not have permission to invite".to_string(),
+                message: "User does not have permission to invite".to_owned(),
             }
             .into_response()
         }
