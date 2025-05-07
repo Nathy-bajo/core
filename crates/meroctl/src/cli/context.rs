@@ -4,6 +4,8 @@ use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use const_format::concatcp;
 use eyre::Result as EyreResult;
+use grant::GrantPermissionCommand;
+use revoke::RevokePermissionCommand;
 
 use crate::cli::context::alias::UseCommand;
 use crate::cli::context::create::CreateCommand;
@@ -22,10 +24,12 @@ mod alias;
 pub mod create;
 mod delete;
 mod get;
+mod grant;
 mod identity;
 pub mod invite;
 pub mod join;
 mod list;
+mod revoke;
 mod update;
 mod watch;
 
@@ -38,6 +42,12 @@ pub const EXAMPLES: &str = r"
 
   # Create a new context in dev mode
   $ meroctl --  --node-name node1 context create --watch <path> -c <contextId>
+
+  # Grant permission to manage applications
+  $ meroctl context grant --granter alice --grantee bob ManageApplication
+
+  # Revoke permission to manage members
+  $ meroctl context revoke --granter alice --grantee bob ManageMembers
 ";
 
 #[derive(Debug, Parser)]
@@ -67,6 +77,10 @@ pub enum ContextSubCommands {
     Identity(ContextIdentityCommand),
     Alias(ContextAliasCommand),
     Use(UseCommand),
+    #[command(about = "Grant permissions to a member")]
+    Grant(GrantPermissionCommand),
+    #[command(about = "Revoke permissions from a member")]
+    Revoke(RevokePermissionCommand),
 }
 
 impl Report for Context {
@@ -101,6 +115,8 @@ impl ContextCommand {
             ContextSubCommands::Identity(identity) => identity.run(environment).await,
             ContextSubCommands::Alias(alias) => alias.run(environment).await,
             ContextSubCommands::Use(use_cmd) => use_cmd.run(environment).await,
+            ContextSubCommands::Grant(grant) => grant.run(environment).await,
+            ContextSubCommands::Revoke(revoke) => revoke.run(environment).await,
         }
     }
 }

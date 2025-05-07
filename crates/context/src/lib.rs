@@ -1612,36 +1612,6 @@ impl ContextManager {
         Ok(aliases)
     }
 
-    pub async fn has_invite_permission(
-        &self,
-        context_id: ContextId,
-        public_key: PublicKey,
-    ) -> EyreResult<bool> {
-        let handle = self.store.handle();
-
-        let Some(context_config) = handle.get(&ContextConfigKey::new(context_id))? else {
-            return Ok(false);
-        };
-
-        let privileges = self
-            .config_client
-            .query::<ContextConfigEnv>(
-                context_config.protocol.as_ref().into(),
-                context_config.network.as_ref().into(),
-                context_config.contract.as_ref().into(),
-            )
-            .privileges(
-                context_id.rt().expect("infallible conversion"),
-                &[public_key.rt().expect("infallible conversion")],
-            )
-            .await?;
-
-        Ok(privileges
-            .values()
-            .flatten()
-            .any(|cap| *cap == Capability::ManageMembers))
-    }
-
     pub async fn grant_permission(
         &self,
         context_id: ContextId,

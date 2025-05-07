@@ -3,6 +3,7 @@ use core::fmt;
 use core::fmt::{Debug, Display, Formatter};
 use core::marker::PhantomData;
 use std::borrow::Cow;
+use std::str::FromStr;
 
 use borsh::{BorshDeserialize, BorshSerialize};
 use bs58::decode::Result as Bs58Result;
@@ -331,6 +332,19 @@ pub enum Capability {
     ManageApplication,
     ManageMembers,
     Proxy,
+}
+
+impl FromStr for Capability {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "manageapplication" => Ok(Capability::ManageApplication),
+            "managemembers" => Ok(Capability::ManageMembers),
+            "proxy" => Ok(Capability::Proxy),
+            _ => Err(format!("Unknown capability: {}", s)),
+        }
+    }
 }
 
 #[derive(Eq, Debug, Clone, PartialEq, Serialize, Deserialize)]
