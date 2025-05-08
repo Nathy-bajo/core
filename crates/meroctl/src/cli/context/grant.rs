@@ -1,9 +1,9 @@
-use calimero_context_config::types::Capability;
+use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::alias::Alias;
 use calimero_primitives::context::ContextId;
 use calimero_primitives::identity::PublicKey;
 use calimero_server_primitives::admin::{GrantPermissionRequest, GrantPermissionResponse};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use eyre::OptionExt;
 use reqwest::Client;
 
@@ -11,6 +11,24 @@ use crate::cli::Environment;
 use crate::common::{
     fetch_multiaddr, load_config, make_request, multiaddr_to_url, resolve_alias, RequestType,
 };
+use crate::output::Report;
+
+#[derive(Debug, Clone, ValueEnum, Copy)]
+pub enum Capability {
+    ManageApplication,
+    ManageMembers,
+    Proxy,
+}
+
+impl From<Capability> for ConfigCapability {
+    fn from(value: Capability) -> Self {
+        match value {
+            Capability::ManageApplication => ConfigCapability::ManageApplication,
+            Capability::ManageMembers => ConfigCapability::ManageMembers,
+            Capability::Proxy => ConfigCapability::Proxy,
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 pub struct GrantPermissionCommand {
@@ -19,13 +37,14 @@ pub struct GrantPermissionCommand {
     pub context: Alias<ContextId>,
 
     #[arg(help = "The granter's public key")]
-    #[arg(long, short = 'a', default_value = "default")]
+    #[arg(long = "as", default_value = "default")]
     pub granter: Alias<PublicKey>,
 
     #[arg(help = "The grantee's public key")]
     pub grantee: PublicKey,
 
     #[arg(help = "The capability to grant")]
+    #[clap(value_enum)]
     pub capability: Capability,
 }
 
@@ -51,7 +70,7 @@ impl GrantPermissionCommand {
             context_id,
             granter_id,
             grantee_id: self.grantee,
-            capability: self.capability,
+            capability: self.capability.into(),
         };
 
         make_request::<_, GrantPermissionResponse>(
@@ -63,5 +82,11 @@ impl GrantPermissionCommand {
             RequestType::Post,
         )
         .await
+    }
+}
+
+impl Report for GrantPermissionResponse {
+    fn report(&self) {
+        println!("Permission granted successfully");
     }
 }

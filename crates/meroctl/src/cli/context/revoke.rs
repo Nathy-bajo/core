@@ -1,9 +1,9 @@
-use calimero_context_config::types::Capability;
+use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::alias::Alias;
 use calimero_primitives::context::ContextId;
 use calimero_primitives::identity::PublicKey;
 use calimero_server_primitives::admin::{RevokePermissionRequest, RevokePermissionResponse};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use eyre::{OptionExt, Result as EyreResult};
 use reqwest::Client;
 
@@ -11,6 +11,30 @@ use crate::cli::Environment;
 use crate::common::{
     fetch_multiaddr, load_config, make_request, multiaddr_to_url, resolve_alias, RequestType,
 };
+use crate::output::Report;
+
+#[derive(Debug, Clone, ValueEnum, Copy)]
+pub enum Capability {
+    ManageApplication,
+    ManageMembers,
+    Proxy,
+}
+
+impl From<Capability> for ConfigCapability {
+    fn from(value: Capability) -> Self {
+        match value {
+            Capability::ManageApplication => ConfigCapability::ManageApplication,
+            Capability::ManageMembers => ConfigCapability::ManageMembers,
+            Capability::Proxy => ConfigCapability::Proxy,
+        }
+    }
+}
+
+impl Report for RevokePermissionResponse {
+    fn report(&self) {
+        println!("Permission revoked successfully");
+    }
+}
 
 #[derive(Debug, Parser)]
 #[command(about = "Revoke permissions from a member in a context")]
@@ -25,6 +49,7 @@ pub struct RevokePermissionCommand {
     pub revokee: PublicKey,
 
     #[clap(help = "The capability to revoke")]
+    #[clap(value_enum)]
     pub capability: Capability,
 }
 
@@ -50,7 +75,7 @@ impl RevokePermissionCommand {
             context_id,
             revoker_id,
             revokee_id: self.revokee,
-            capability: self.capability,
+            capability: self.capability.into(),
         };
 
         let url = multiaddr_to_url(multiaddr, "admin-api/dev/contexts/revoke-permission")?;

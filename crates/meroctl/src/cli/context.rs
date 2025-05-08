@@ -4,8 +4,6 @@ use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use const_format::concatcp;
 use eyre::Result as EyreResult;
-use grant::GrantPermissionCommand;
-use revoke::RevokePermissionCommand;
 
 use crate::cli::context::alias::UseCommand;
 use crate::cli::context::create::CreateCommand;
@@ -33,6 +31,9 @@ mod revoke;
 mod update;
 mod watch;
 
+use grant::GrantPermissionCommand;
+use revoke::RevokePermissionCommand;
+
 pub const EXAMPLES: &str = r"
   # List all contexts
   $ meroctl -- --node-name node1 context ls
@@ -44,10 +45,10 @@ pub const EXAMPLES: &str = r"
   $ meroctl --  --node-name node1 context create --watch <path> -c <contextId>
 
   # Grant permission to manage applications
-  $ meroctl context grant --granter alice --grantee bob ManageApplication
+  $ meroctl context grant bob ManageApplication --as alice
 
   # Revoke permission to manage members
-  $ meroctl context revoke --granter alice --grantee bob ManageMembers
+  $ meroctl context revoke bob ManageMembers --as alice
 ";
 
 #[derive(Debug, Parser)]

@@ -1,4 +1,3 @@
-use calimero_server_primitives::admin::{GrantPermissionResponse, RevokePermissionResponse};
 use clap::ValueEnum;
 use color_eyre::owo_colors::OwoColorize;
 use serde::Serialize;
@@ -61,17 +60,5 @@ pub struct WarnLine<'a>(pub &'a str);
 impl Report for WarnLine<'_> {
     fn report(&self) {
         println!("{} {}", "[WARN]".yellow(), self.0);
-    }
-}
-
-impl Report for GrantPermissionResponse {
-    fn report(&self) {
-        println!("Permission granted successfully");
-    }
-}
-
-impl Report for RevokePermissionResponse {
-    fn report(&self) {
-        println!("Permission revoked successfully");
     }
 }
