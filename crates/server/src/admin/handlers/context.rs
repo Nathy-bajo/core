@@ -9,4 +9,8 @@ pub mod grant_permission;
 pub mod invite_to_context;
 pub mod join_context;
 pub mod revoke_permission;
+pub mod grant_capabilities;
+pub mod invite_to_context;
+pub mod join_context;
+pub mod revoke_capabilities;
 pub mod update_context_application;

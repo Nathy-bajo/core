@@ -1618,6 +1618,11 @@ impl ContextManager {
         granter_id: PublicKey,
         grantee_id: PublicKey,
         capability: Capability,
+    pub async fn grant_capabilities(
+        &self,
+        context_id: ContextId,
+        signer_id: PublicKey,
+        capabilities: &[(ContextIdentity, Capability)],
     ) -> EyreResult<()> {
         let handle = self.store.handle();
 
@@ -1631,6 +1636,9 @@ impl ContextManager {
         }) = handle.get(&ContextIdentityKey::new(context_id, granter_id))?
         else {
             bail!("No private key found for granter");
+        }) = handle.get(&ContextIdentityKey::new(context_id, signer_id))?
+        else {
+            bail!("No private key found for signer");
         };
 
         let nonce = self
@@ -1646,6 +1654,10 @@ impl ContextManager {
             )
             .await?
             .ok_or_eyre("Granter is not a member")?;
+                signer_id.rt().expect("infallible conversion"),
+            )
+            .await?
+            .ok_or_eyre("Not a member")?;
 
         self.config_client
             .mutate::<ContextConfigEnv>(
@@ -1656,6 +1668,7 @@ impl ContextManager {
             .grant(
                 context_id.rt().expect("infallible conversion"),
                 &[(grantee_id.rt().expect("infallible conversion"), capability)],
+                capabilities,
             )
             .send(signing_key, nonce)
             .await?;
@@ -1669,6 +1682,11 @@ impl ContextManager {
         revoker_id: PublicKey,
         revokee_id: PublicKey,
         capability: Capability,
+    pub async fn revoke_capabilities(
+        &self,
+        context_id: ContextId,
+        signer_id: PublicKey,
+        capabilities: &[(ContextIdentity, Capability)],
     ) -> EyreResult<()> {
         let handle = self.store.handle();
 
@@ -1682,6 +1700,9 @@ impl ContextManager {
         }) = handle.get(&ContextIdentityKey::new(context_id, revoker_id))?
         else {
             bail!("No private key found for revoker");
+        }) = handle.get(&ContextIdentityKey::new(context_id, signer_id))?
+        else {
+            bail!("No private key found for signer");
         };
 
         let nonce = self
@@ -1697,6 +1718,10 @@ impl ContextManager {
             )
             .await?
             .ok_or_eyre("Revoker is not a member")?;
+                signer_id.rt().expect("infallible conversion"),
+            )
+            .await?
+            .ok_or_eyre("Not a member")?;
 
         self.config_client
             .mutate::<ContextConfigEnv>(
