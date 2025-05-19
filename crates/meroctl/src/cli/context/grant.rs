@@ -14,6 +14,7 @@ use crate::common::{
 use crate::output::Report;
 
 #[derive(Debug, Parser)]
+#[command(about = "Grant permissions to a member in a context")]
 pub struct GrantPermissionCommand {
     #[arg(help = "The context ID")]
     #[arg(long, short, default_value = "default")]
@@ -59,7 +60,7 @@ impl GrantPermissionCommand {
         make_request::<_, GrantPermissionResponse>(
             environment,
             &client,
-            multiaddr_to_url(multiaddr, "admin-api/dev/contexts/grant-permission")?,
+            multiaddr_to_url(multiaddr, "admin-api/dev/contexts/identity/grant-permission")?,
             Some(request),
             &config.identity,
             RequestType::Post,
@@ -72,4 +73,5 @@ impl Report for GrantPermissionResponse {
     fn report(&self) {
         println!("Permission granted successfully");
     }
+
 }

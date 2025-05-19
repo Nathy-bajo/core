@@ -61,7 +61,7 @@ impl RevokePermissionCommand {
             capability: self.capability.into(),
         };
 
-        let url = multiaddr_to_url(multiaddr, "admin-api/dev/contexts/revoke-permission")?;
+        let url = multiaddr_to_url(multiaddr, "admin-api/dev/contexts/identity/revoke-permission")?;
 
         let _ = make_request::<_, RevokePermissionResponse>(
             environment,
