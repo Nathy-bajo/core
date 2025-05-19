@@ -325,7 +325,9 @@ impl ReprBytes for VerifyingKey {
     }
 }
 
-#[derive(Eq, Ord, Copy, Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize, clap::ValueEnum)]
+#[derive(
+    Eq, Ord, Copy, Clone, Debug, PartialEq, PartialOrd, Serialize, Deserialize, clap::ValueEnum,
+)]
 #[clap(rename_all = "PascalCase")]
 #[expect(clippy::exhaustive_enums, reason = "Considered to be exhaustive")]
 pub enum Capability {
