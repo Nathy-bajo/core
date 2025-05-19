@@ -1,6 +1,7 @@
 use alias::ContextAliasCommand;
+use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::context::Context;
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use comfy_table::{Cell, Table};
 use const_format::concatcp;
 use eyre::Result as EyreResult;
@@ -60,6 +61,24 @@ pub const EXAMPLES: &str = r"
 pub struct ContextCommand {
     #[command(subcommand)]
     pub subcommand: ContextSubCommands,
+}
+
+#[derive(Debug, Clone, ValueEnum, Copy)]
+#[clap(rename_all = "PascalCase")]
+pub enum Capability {
+    ManageApplication,
+    ManageMembers,
+    Proxy,
+}
+
+impl From<Capability> for ConfigCapability {
+    fn from(value: Capability) -> Self {
+        match value {
+            Capability::ManageApplication => ConfigCapability::ManageApplication,
+            Capability::ManageMembers => ConfigCapability::ManageMembers,
+            Capability::Proxy => ConfigCapability::Proxy,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]

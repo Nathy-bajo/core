@@ -1,34 +1,17 @@
-use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::alias::Alias;
 use calimero_primitives::context::ContextId;
 use calimero_primitives::identity::PublicKey;
 use calimero_server_primitives::admin::{GrantPermissionRequest, GrantPermissionResponse};
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use eyre::OptionExt;
 use reqwest::Client;
 
+use super::Capability;
 use crate::cli::Environment;
 use crate::common::{
     fetch_multiaddr, load_config, make_request, multiaddr_to_url, resolve_alias, RequestType,
 };
 use crate::output::Report;
-
-#[derive(Debug, Clone, ValueEnum, Copy)]
-pub enum Capability {
-    ManageApplication,
-    ManageMembers,
-    Proxy,
-}
-
-impl From<Capability> for ConfigCapability {
-    fn from(value: Capability) -> Self {
-        match value {
-            Capability::ManageApplication => ConfigCapability::ManageApplication,
-            Capability::ManageMembers => ConfigCapability::ManageMembers,
-            Capability::Proxy => ConfigCapability::Proxy,
-        }
-    }
-}
 
 #[derive(Debug, Parser)]
 pub struct GrantPermissionCommand {
