@@ -1872,7 +1872,6 @@ dependencies = [
  "borsh",
  "bs58 0.5.1",
  "candid",
- "clap",
  "ed25519-consensus",
  "ed25519-dalek",
  "either",
