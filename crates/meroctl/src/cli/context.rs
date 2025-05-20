@@ -75,9 +75,7 @@ pub enum ContextSubCommands {
     Identity(ContextIdentityCommand),
     Alias(ContextAliasCommand),
     Use(UseCommand),
-    #[command(about = "Grant permissions to a member")]
     Grant(GrantPermissionCommand),
-    #[command(about = "Revoke permissions from a member")]
     Revoke(RevokePermissionCommand),
 }
 
