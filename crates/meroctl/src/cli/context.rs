@@ -1,10 +1,11 @@
 use alias::ContextAliasCommand;
-use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::context::Context;
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use const_format::concatcp;
 use eyre::Result as EyreResult;
+use identity::grant::GrantPermissionCommand;
+use identity::revoke::RevokePermissionCommand;
 
 use crate::cli::context::alias::UseCommand;
 use crate::cli::context::create::CreateCommand;
@@ -23,17 +24,12 @@ mod alias;
 pub mod create;
 mod delete;
 mod get;
-mod grant;
 mod identity;
 pub mod invite;
 pub mod join;
 mod list;
-mod revoke;
 mod update;
 mod watch;
-
-use grant::GrantPermissionCommand;
-use revoke::RevokePermissionCommand;
 
 pub const EXAMPLES: &str = r"
   # List all contexts
@@ -46,10 +42,10 @@ pub const EXAMPLES: &str = r"
   $ meroctl --  --node-name node1 context create --watch <path> -c <contextId>
 
   # Grant permission to manage applications
-  $ meroctl context grant bob ManageApplication --as alice
+  $ meroctl context identity grant bob ManageApplication --as alice
 
   # Revoke permission to manage members
-  $ meroctl context revoke bob ManageMembers --as alice
+  $ meroctl context identity revoke bob ManageMembers --as alice
 ";
 
 #[derive(Debug, Parser)]
@@ -61,24 +57,6 @@ pub const EXAMPLES: &str = r"
 pub struct ContextCommand {
     #[command(subcommand)]
     pub subcommand: ContextSubCommands,
-}
-
-#[derive(Debug, Clone, ValueEnum, Copy)]
-#[clap(rename_all = "PascalCase")]
-pub enum Capability {
-    ManageApplication,
-    ManageMembers,
-    Proxy,
-}
-
-impl From<Capability> for ConfigCapability {
-    fn from(value: Capability) -> Self {
-        match value {
-            Capability::ManageApplication => ConfigCapability::ManageApplication,
-            Capability::ManageMembers => ConfigCapability::ManageMembers,
-            Capability::Proxy => ConfigCapability::Proxy,
-        }
-    }
 }
 
 #[derive(Debug, Subcommand)]

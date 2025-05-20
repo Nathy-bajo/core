@@ -1,4 +1,4 @@
-use calimero_context_config::types::Capability;
+use calimero_context_config::types::Capability as ConfigCapability;
 use calimero_primitives::alias::Alias;
 use calimero_primitives::context::ContextId;
 use calimero_primitives::identity::PublicKey;
@@ -6,6 +6,7 @@ use calimero_store::key::ContextIdentity as ContextIdentityKey;
 use clap::{Parser, Subcommand};
 use eyre::{OptionExt, Result as EyreResult, WrapErr};
 use owo_colors::OwoColorize;
+use clap::ValueEnum;
 
 use crate::Node;
 
@@ -70,6 +71,24 @@ enum ContextIdentitySubcommands {
         #[arg(help = "The capability to revoke")]
         capability: Capability,
     },
+}
+
+#[derive(Debug, Clone, ValueEnum, Copy)]
+#[clap(rename_all = "PascalCase")]
+pub enum Capability {
+    ManageApplication,
+    ManageMembers,
+    Proxy,
+}
+
+impl From<Capability> for ConfigCapability {
+    fn from(value: Capability) -> Self {
+        match value {
+            Capability::ManageApplication => ConfigCapability::ManageApplication,
+            Capability::ManageMembers => ConfigCapability::ManageMembers,
+            Capability::Proxy => ConfigCapability::Proxy,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -205,7 +224,7 @@ impl ContextIdentityCommand {
 
                 drop(
                     node.ctx_manager
-                        .grant_permission(context_id, granter_id, grantee, capability),
+                        .grant_permission(context_id, granter_id, grantee, capability.into()),
                 );
 
                 println!("{ind} Permission granted successfully");
@@ -228,7 +247,7 @@ impl ContextIdentityCommand {
 
                 drop(
                     node.ctx_manager
-                        .revoke_permission(context_id, revoker_id, revokee, capability),
+                        .revoke_permission(context_id, revoker_id, revokee, capability.into()),
                 );
 
                 println!("{ind} Permission revoked successfully");

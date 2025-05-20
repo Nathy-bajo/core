@@ -60,7 +60,7 @@ impl GrantPermissionCommand {
         make_request::<_, GrantPermissionResponse>(
             environment,
             &client,
-            multiaddr_to_url(multiaddr, "admin-api/dev/contexts/identity/grant-permission")?,
+            multiaddr_to_url(multiaddr, "admin-api/dev/contexts/grant-permission")?,
             Some(request),
             &config.identity,
             RequestType::Post,
@@ -73,5 +73,4 @@ impl Report for GrantPermissionResponse {
     fn report(&self) {
         println!("Permission granted successfully");
     }
-
 }
