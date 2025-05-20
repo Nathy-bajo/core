@@ -34,7 +34,7 @@ pub struct GrantPermissionCommand {
 
 impl GrantPermissionCommand {
     pub async fn run(self, environment: &Environment) -> eyre::Result<()> {
-        let config = load_config(&environment.args.home, &environment.args.node_name)?;
+        let config = load_config(&environment.args.home, &environment.args.node_name).await?;
         let multiaddr = fetch_multiaddr(&config)?;
         let client = Client::new();
 
