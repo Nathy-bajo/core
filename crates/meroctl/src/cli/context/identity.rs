@@ -5,11 +5,9 @@ use calimero_primitives::identity::PublicKey;
 use calimero_server_primitives::admin::GetContextIdentitiesResponse;
 use clap::{Parser, ValueEnum};
 use eyre::{OptionExt, Result as EyreResult, WrapErr};
-use grant::GrantPermissionCommand;
 use libp2p::identity::Keypair;
 use libp2p::Multiaddr;
 use reqwest::Client;
-use revoke::RevokePermissionCommand;
 
 use crate::cli::Environment;
 use crate::common::{
@@ -22,6 +20,9 @@ mod alias;
 mod generate;
 pub mod grant;
 pub mod revoke;
+
+use grant::GrantPermissionCommand;
+use revoke::RevokePermissionCommand;
 
 #[derive(Debug, Clone, ValueEnum, Copy)]
 #[clap(rename_all = "PascalCase")]
