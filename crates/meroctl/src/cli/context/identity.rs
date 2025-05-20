@@ -5,9 +5,11 @@ use calimero_primitives::identity::PublicKey;
 use calimero_server_primitives::admin::GetContextIdentitiesResponse;
 use clap::{Parser, ValueEnum};
 use eyre::{OptionExt, Result as EyreResult, WrapErr};
+use grant::GrantPermissionCommand;
 use libp2p::identity::Keypair;
 use libp2p::Multiaddr;
 use reqwest::Client;
+use revoke::RevokePermissionCommand;
 
 use crate::cli::Environment;
 use crate::common::{
@@ -70,6 +72,8 @@ pub enum ContextIdentitySubcommand {
         #[arg(long, short, help = "Force overwrite if alias already exists")]
         force: bool,
     },
+    Grant(GrantPermissionCommand),
+    Revoke(RevokePermissionCommand),
 }
 
 impl ContextIdentityCommand {
@@ -155,6 +159,8 @@ impl ContextIdentityCommand {
                 );
                 Ok(())
             }
+            ContextIdentitySubcommand::Grant(grant) => grant.run(environment).await,
+            ContextIdentitySubcommand::Revoke(revoke) => revoke.run(environment).await,
         }
     }
 }

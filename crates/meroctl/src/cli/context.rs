@@ -4,8 +4,6 @@ use clap::{Parser, Subcommand};
 use comfy_table::{Cell, Table};
 use const_format::concatcp;
 use eyre::Result as EyreResult;
-use identity::grant::GrantPermissionCommand;
-use identity::revoke::RevokePermissionCommand;
 
 use crate::cli::context::alias::UseCommand;
 use crate::cli::context::create::CreateCommand;
@@ -75,8 +73,6 @@ pub enum ContextSubCommands {
     Identity(ContextIdentityCommand),
     Alias(ContextAliasCommand),
     Use(UseCommand),
-    Grant(GrantPermissionCommand),
-    Revoke(RevokePermissionCommand),
 }
 
 impl Report for Context {
@@ -111,8 +107,6 @@ impl ContextCommand {
             ContextSubCommands::Identity(identity) => identity.run(environment).await,
             ContextSubCommands::Alias(alias) => alias.run(environment).await,
             ContextSubCommands::Use(use_cmd) => use_cmd.run(environment).await,
-            ContextSubCommands::Grant(grant) => grant.run(environment).await,
-            ContextSubCommands::Revoke(revoke) => revoke.run(environment).await,
         }
     }
 }
