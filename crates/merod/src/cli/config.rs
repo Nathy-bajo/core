@@ -1,6 +1,9 @@
 #![allow(unused_results, reason = "Occurs in macro")]
 
-use crate::cli;
+use std::env::temp_dir;
+use std::io::Write;
+use std::str::FromStr;
+
 use calimero_config::{ConfigFile, CONFIG_FILE};
 use camino::Utf8PathBuf;
 use clap::{Parser, ValueEnum};
@@ -8,12 +11,12 @@ use comfy_table::{Cell, Color as ComfyColor, Table};
 use eyre::{bail, eyre, Result as EyreResult};
 use lazy_static::lazy_static;
 use similar::{ChangeTag, TextDiff};
-use std::str::FromStr;
-use std::{env::temp_dir, io::Write};
 use termcolor::{Color as TermColor, ColorChoice, ColorSpec, StandardStream, WriteColor};
 use tokio::fs::{read_to_string, write};
 use toml_edit::{Item, Value};
 use tracing::info;
+
+use crate::cli;
 
 /// Configure the node
 #[derive(Debug, Parser, Clone)]
