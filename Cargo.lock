@@ -5994,6 +5994,7 @@ dependencies = [
  "similar",
  "soroban-client",
  "starknet",
+ "tempfile",
  "termcolor",
  "tokio",
  "toml",

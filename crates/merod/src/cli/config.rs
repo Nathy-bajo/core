@@ -1,6 +1,5 @@
 #![allow(unused_results, reason = "Occurs in macro")]
 
-use std::env::temp_dir;
 use std::io::Write;
 use std::str::FromStr;
 
@@ -75,7 +74,6 @@ impl ConfigCommand {
             .map_err(|_| eyre!("Node is not initialized in {:?}", path))?;
         let mut doc = toml_str.parse::<toml_edit::DocumentMut>()?;
 
-        // Handle hint requests (? suffix)
         let (hints, edits): (Vec<_>, Vec<_>) = self
             .args
             .clone()
@@ -83,14 +81,11 @@ impl ConfigCommand {
             .partition(|kv| kv.key.ends_with('?'));
 
         if !hints.is_empty() {
-            // Print schema hints and exit
             return self.print_hints(&hints);
         }
 
-        // Track if we made any changes
         let mut changes_made = false;
 
-        // Apply edits if any
         if !edits.is_empty() {
             for kv in &edits {
                 let key_parts: Vec<&str> = kv.key.split('.').collect();
@@ -110,7 +105,6 @@ impl ConfigCommand {
             }
         }
 
-        // Validate before saving/printing
         self.clone().validate_toml(&doc).await?;
 
         if changes_made {
@@ -118,14 +112,12 @@ impl ConfigCommand {
                 write(&path, doc.to_string()).await?;
                 info!("Node configuration has been updated");
             } else {
-                // Show diff
                 self.print_diff(&toml_str, &doc.to_string())?;
                 eprintln!(
                     "\nnote: if this looks right, use `-s, --save` to persist these modifications"
                 );
             }
         } else if edits.is_empty() {
-            // Just print the config if no edits were requested
             self.print_config(&doc)?;
         } else {
             eprintln!("warning: no changes were made to the configuration");
@@ -134,15 +126,20 @@ impl ConfigCommand {
         Ok(())
     }
 
-    pub async fn validate_toml(self, doc: &toml_edit::DocumentMut) -> EyreResult<()> {
-        let tmp_dir = temp_dir();
-        let tmp_path = tmp_dir.join(CONFIG_FILE);
+    pub async fn validate_toml(&self, doc: &toml_edit::DocumentMut) -> EyreResult<()> {
+        let temp_file = tempfile::NamedTempFile::new()?;
+        let temp_path = temp_file.path().to_owned();
 
-        write(&tmp_path, doc.to_string()).await?;
+        write(&temp_path, doc.to_string()).await?;
 
-        let tmp_path_utf8 = Utf8PathBuf::try_from(tmp_dir)?;
+        let temp_path_utf8 = Utf8PathBuf::try_from(temp_path)
+            .map_err(|_| eyre!("Failed to convert temp path to UTF-8"))?;
 
-        drop(ConfigFile::load(&tmp_path_utf8).await?);
+        ConfigFile::load(&temp_path_utf8)
+            .await
+            .map_err(|e| eyre!("Config validation failed: {}", e))?;
+
+        temp_file.close()?;
 
         Ok(())
     }
@@ -159,14 +156,12 @@ impl ConfigCommand {
         for kv in hints {
             let key = kv.key.trim_end_matches('?');
             if let Some(schema) = CONFIG_SCHEMA.find(key) {
-                // Add the parent item
                 table.add_row(vec![
                     Cell::new(key),
                     Cell::new(schema.type_info),
                     Cell::new(schema.description),
                 ]);
 
-                // Add children if they exist
                 for child in &schema.children {
                     let child_key = format!("{}.{}", key, child.path);
                     table.add_row(vec![
