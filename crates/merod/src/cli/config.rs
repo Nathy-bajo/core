@@ -239,7 +239,7 @@ impl ConfigCommand {
                 Item::Table(table_data) => {
                     for (key, value) in table_data.iter() {
                         let full_path = if prefix.is_empty() {
-                            key.to_string()
+                            key.to_owned()
                         } else {
                             format!("{}.{}", prefix, key)
                         };
