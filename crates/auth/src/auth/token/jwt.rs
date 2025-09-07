@@ -7,6 +7,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use url::Url;
 use {base64, hex, rand, uuid};
 
 use crate::api::handlers::auth::ChallengeResponse;
@@ -40,6 +41,9 @@ pub struct Claims {
     pub jti: String,
     /// Permissions
     pub permissions: Vec<String>,
+    /// Node URL this token is valid for (optional, for backward compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_url: Option<String>,
 }
 
 /// Challenge Claims structure
@@ -92,12 +96,63 @@ impl TokenManager {
         }
     }
 
+    /// Validate that a token's node_url matches the request host
+    ///
+    /// This function compares the host from the token's node_url with the original
+    /// host from the request headers. It skips validation for internal auth service
+    /// requests.
+    ///
+    /// # Arguments
+    ///
+    /// * `token_node_url` - The node URL from the JWT token
+    /// * `headers` - The request headers
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(), String>` - Ok if validation passes, Err with error message if not
+    pub fn validate_node_host(
+        &self,
+        token_node_url: &str,
+        headers: &HeaderMap,
+    ) -> Result<(), String> {
+        let request_host = headers
+            .get("X-Forwarded-Host")
+            .or_else(|| headers.get("host"))
+            .and_then(|h| h.to_str().ok());
+
+        if let Some(request_host) = request_host {
+            // Skip validation if request is coming from internal auth service
+            if request_host.starts_with("auth:") {
+                return Ok(());
+            }
+
+            // Extract the host from the token's node URL
+            if let Ok(token_url) = Url::parse(token_node_url) {
+                if let Some(token_host) = token_url.host_str() {
+                    // Compare the hosts (handle both with and without port)
+                    let request_host_without_port =
+                        request_host.split(':').next().unwrap_or(request_host);
+                    if request_host_without_port != token_host && request_host != token_host {
+                        return Err(format!(
+                            "Token is not valid for this host. Token is for '{}' but request is to '{}'", 
+                            token_host,
+                            request_host
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Generate a JWT token
     async fn generate_token(
         &self,
         key_id: String,
         permissions: Vec<String>,
         expiry: Duration,
+        node_url: Option<String>,
     ) -> Result<String, AuthError> {
         let now = Utc::now();
         let exp = now + expiry;
@@ -110,6 +165,7 @@ impl TokenManager {
             iat: now.timestamp() as u64,
             jti: uuid::Uuid::new_v4().to_string(),
             permissions,
+            node_url,
         };
 
         let secret = self
@@ -127,11 +183,53 @@ impl TokenManager {
         .map_err(|e| AuthError::TokenGenerationFailed(e.to_string()))
     }
 
-    /// Generate a token pair
+    /// Generate mock tokens without requiring key storage (for CI/testing only)
+    ///
+    /// This method bypasses all key storage and validation for mock token generation.
+    /// Should only be used in development/testing environments.
+    pub async fn generate_mock_token_pair(
+        &self,
+        key_id: String,
+        permissions: Vec<String>,
+        node_url: Option<String>,
+        custom_expiry: Option<u64>,
+    ) -> Result<(String, String), AuthError> {
+        let access_expiry =
+            Duration::seconds(custom_expiry.unwrap_or(self.config.access_token_expiry) as i64);
+        let refresh_expiry = Duration::seconds(self.config.refresh_token_expiry as i64);
+
+        let access_token = self
+            .generate_token(
+                key_id.clone(),
+                permissions.clone(),
+                access_expiry,
+                node_url.clone(),
+            )
+            .await?;
+
+        let refresh_token = self
+            .generate_token(key_id, permissions, refresh_expiry, node_url)
+            .await?;
+
+        Ok((access_token, refresh_token))
+    }
+
+    /// Generate a pair of access and refresh tokens
+    ///
+    /// # Arguments
+    ///
+    /// * `key_id` - The key ID
+    /// * `permissions` - The permissions to include in the token
+    /// * `node_url` - The node URL this token is valid for (optional)
+    ///
+    /// # Returns
+    ///
+    /// * `Result<(String, String), AuthError>` - The access and refresh tokens
     pub async fn generate_token_pair(
         &self,
         key_id: String,
         permissions: Vec<String>,
+        node_url: Option<String>,
     ) -> Result<(String, String), AuthError> {
         // Verify the key exists and is valid
         let key = self
@@ -153,6 +251,7 @@ impl TokenManager {
                         key_id.clone(),
                         permissions.clone(),
                         Duration::seconds(self.config.access_token_expiry as i64),
+                        node_url.clone(),
                     )
                     .await?;
 
@@ -161,6 +260,7 @@ impl TokenManager {
                         key_id,
                         permissions,
                         Duration::seconds(self.config.refresh_token_expiry as i64),
+                        node_url,
                     )
                     .await?;
 
@@ -173,6 +273,7 @@ impl TokenManager {
                         key_id.clone(),
                         permissions.clone(),
                         Duration::seconds(self.config.access_token_expiry as i64),
+                        node_url.clone(),
                     )
                     .await?;
 
@@ -181,6 +282,7 @@ impl TokenManager {
                         key_id,
                         permissions,
                         Duration::seconds(self.config.refresh_token_expiry as i64),
+                        node_url,
                     )
                     .await?;
 
@@ -247,6 +349,13 @@ impl TokenManager {
         }
 
         let claims = self.verify_token(token).await?;
+
+        // Check node URL if token has node information
+        if let Some(token_node_url) = &claims.node_url {
+            if let Err(error_msg) = self.validate_node_host(token_node_url, headers) {
+                return Err(AuthError::InvalidToken(error_msg));
+            }
+        }
 
         // Verify the key exists and is valid
         let key = self
@@ -337,7 +446,10 @@ impl TokenManager {
 
         match key.key_type {
             // For root tokens, simply generate new tokens with the same ID
-            KeyType::Root => self.generate_token_pair(claims.sub, key.permissions).await,
+            KeyType::Root => {
+                self.generate_token_pair(claims.sub, key.permissions, claims.node_url.clone())
+                    .await
+            }
             // For client tokens, rotate the key ID
             KeyType::Client => {
                 // Generate new client ID
@@ -369,7 +481,11 @@ impl TokenManager {
 
                 // Generate new tokens with the new ID first (before deleting old key)
                 let token_result = self
-                    .generate_token_pair(new_client_id.clone(), key.permissions)
+                    .generate_token_pair(
+                        new_client_id.clone(),
+                        key.permissions,
+                        claims.node_url.clone(),
+                    )
                     .await;
 
                 // Only delete the old key if token generation was successful
@@ -473,5 +589,10 @@ impl TokenManager {
         .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
 
         Ok(token_data.claims)
+    }
+
+    /// Get the key manager
+    pub fn get_key_manager(&self) -> &KeyManager {
+        &self.key_manager
     }
 }

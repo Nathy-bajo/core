@@ -8,11 +8,13 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{debug, error, info, warn};
+use url::Url;
 use validator::Validate;
 
 use crate::api::handlers::AuthUiStaticFiles;
 use crate::auth::validation::{sanitize_identifier, sanitize_string, ValidatedJson};
 use crate::server::AppState;
+use crate::storage::models::Key;
 
 // Common response type used by all helper functions
 type ApiResponse = (StatusCode, HeaderMap, Json<serde_json::Value>);
@@ -46,10 +48,7 @@ pub fn error_response(
 /// Login request handler
 ///
 /// This endpoint serves the login page.
-pub async fn login_handler(
-    state: Extension<Arc<AppState>>,
-    Query(_params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
+pub async fn login_handler(state: Extension<Arc<AppState>>) -> impl IntoResponse {
     let enabled_providers = state.0.auth_service.providers();
 
     if !enabled_providers.is_empty() {
@@ -145,6 +144,9 @@ pub async fn token_handler(
 ) -> impl IntoResponse {
     info!("token_handler");
 
+    // Extract node URL from client_name for node-specific token generation
+    let node_url = Some(token_request.client_name.clone());
+
     // Sanitize string inputs to prevent injection attacks
     token_request.auth_method = sanitize_identifier(&token_request.auth_method);
     token_request.public_key = sanitize_string(&token_request.public_key);
@@ -175,11 +177,11 @@ pub async fn token_handler(
         );
     }
 
-    // Authenticate directly using the token request
+    // Authenticate directly using the token request with node context
     let auth_response = match state
         .0
         .auth_service
-        .authenticate_token_request(&token_request)
+        .authenticate_token_request(&token_request, node_url.as_deref())
         .await
     {
         Ok(response) => response,
@@ -204,11 +206,11 @@ pub async fn token_handler(
 
     let key_id = auth_response.key_id;
 
-    // Generate tokens using the validated permissions from auth_response
+    // Generate tokens using the validated permissions from auth_response and node_id
     match state
         .0
         .token_generator
-        .generate_token_pair(key_id.clone(), auth_response.permissions)
+        .generate_token_pair(key_id.clone(), auth_response.permissions, node_url)
         .await
     {
         Ok((access_token, refresh_token)) => {
@@ -252,12 +254,14 @@ pub struct RefreshTokenRequest {
 /// * `impl IntoResponse` - The response
 pub async fn refresh_token_handler(
     state: Extension<Arc<AppState>>,
-    ValidatedJson(request): ValidatedJson<RefreshTokenRequest>,
+    headers: HeaderMap,
+    ValidatedJson(refresh_request): ValidatedJson<RefreshTokenRequest>,
 ) -> impl IntoResponse {
+    // First check if access token is still valid
     match state
         .0
         .token_generator
-        .verify_token(&request.access_token)
+        .verify_token(&refresh_request.access_token)
         .await
     {
         Ok(_) => {
@@ -274,10 +278,42 @@ pub async fn refresh_token_handler(
         }
     };
 
+    // Verify the refresh token and extract claims
+    let refresh_claims = match state
+        .0
+        .token_generator
+        .verify_token(&refresh_request.refresh_token)
+        .await
+    {
+        Ok(claims) => claims,
+        Err(err) => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                format!("Invalid refresh token: {}", err),
+                None,
+            );
+        }
+    };
+
+    // Check node URL if token has node information
+    if let Some(token_node_url) = &refresh_claims.node_url {
+        if let Err(error_msg) = state
+            .0
+            .token_generator
+            .validate_node_host(token_node_url, &headers)
+        {
+            let mut error_headers = HeaderMap::new();
+            error_headers.insert("X-Auth-Error", "invalid_node".parse().unwrap());
+            return error_response(StatusCode::FORBIDDEN, error_msg, Some(error_headers));
+        }
+    }
+
+    // Use the refresh token to generate new tokens
+    // Note: refresh_token_pair automatically preserves node_url from the refresh token
     match state
         .0
         .token_generator
-        .refresh_token_pair(&request.refresh_token)
+        .refresh_token_pair(&refresh_request.refresh_token)
         .await
     {
         Ok((access_token, refresh_token)) => {
@@ -332,6 +368,19 @@ pub async fn validate_handler(
     // Validate the token
     match state.0.token_generator.verify_token(&token).await {
         Ok(claims) => {
+            // Check node URL if token has node information
+            if let Some(token_node_url) = &claims.node_url {
+                if let Err(error_msg) = state
+                    .0
+                    .token_generator
+                    .validate_node_host(token_node_url, &headers)
+                {
+                    let mut error_headers = HeaderMap::new();
+                    error_headers.insert("X-Auth-Error", "invalid_node".parse().unwrap());
+                    return error_response(StatusCode::FORBIDDEN, error_msg, Some(error_headers));
+                }
+            }
+
             // Verify the key exists and is valid
             let _key = match state.0.key_manager.get_key(&claims.sub).await {
                 Ok(Some(key)) if key.is_valid() => key,
@@ -423,32 +472,192 @@ fn extract_token_from_forwarded_uri<'a>(headers: &'a HeaderMap) -> Option<&'a st
         })
 }
 
-/// OAuth callback handler
+/// OAuth callback handler for meroctl authentication flow
 ///
-/// This endpoint handles callbacks from OAuth providers.
+/// This endpoint serves a simple authentication form that allows users
+/// to authenticate and then redirects back to the meroctl callback server.
 ///
 /// # Arguments
 ///
 /// * `state` - The application state
+/// * `Query(params)` - Query parameters including callback-url
 ///
 /// # Returns
 ///
-/// * `impl IntoResponse` - The response
-// TODO: Implement OAuth callback handling
-pub async fn callback_handler(_state: Extension<Arc<AppState>>) -> impl IntoResponse {
-    // This is a placeholder implementation
-    // In a real implementation, you would:
-    // 1. Extract the code from the request
-    // 2. Exchange it for tokens
-    // 3. Validate the tokens
-    // 4. Create or lookup the root key
-    // 5. Create a client key
-    // 6. Generate tokens
-    // 7. Redirect to the original URL with the tokens
+/// * `impl IntoResponse` - HTML form for authentication
+pub async fn callback_handler(
+    _state: Extension<Arc<AppState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Extract the callback URL from query parameters
+    let default_callback = "http://127.0.0.1:9080/callback".to_string();
+    let callback_url = params.get("callback-url").unwrap_or(&default_callback);
+
+    // Create a simple authentication form
+    let html = format!(
+        r#"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calimero Authentication</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+        }}
+        
+        .container {{
+            text-align: center;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 3rem 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            max-width: 500px;
+            width: 90%;
+        }}
+        
+        h1 {{
+            font-size: 2rem;
+            margin-bottom: 2rem;
+            font-weight: 600;
+        }}
+        
+        .form-group {{
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }}
+        
+        label {{
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }}
+        
+        input, select {{
+            width: 100%;
+            padding: 0.75rem;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #333;
+            font-size: 1rem;
+        }}
+        
+        button {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 1rem 2rem;
+            border-radius: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-top: 1rem;
+        }}
+        
+        button:hover {{
+            transform: translateY(-2px);
+        }}
+        
+        .info {{
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Calimero Authentication</h1>
+        
+        <div class="info">
+            <strong>Note:</strong> This is a simplified authentication flow for meroctl CLI.
+            For production use, implement proper NEAR wallet authentication.
+        </div>
+        
+        <form id="authForm">
+            <div class="form-group">
+                <label for="authMethod">Authentication Method:</label>
+                <select id="authMethod" name="authMethod" required>
+                    <option value="near_wallet">NEAR Wallet</option>
+                    <option value="user_password">Username/Password</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="publicKey">Public Key:</label>
+                <input type="text" id="publicKey" name="publicKey" placeholder="ed25519:..." required>
+            </div>
+            
+            <div class="form-group">
+                <label for="clientName">Client Name:</label>
+                <input type="text" id="clientName" name="clientName" placeholder="meroctl-cli" required>
+            </div>
+            
+            <button type="submit">Authenticate</button>
+        </form>
+    </div>
+    
+    <script>
+        document.getElementById('authForm').addEventListener('submit', async function(e) {{
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = {{
+                auth_method: formData.get('authMethod'),
+                public_key: formData.get('publicKey'),
+                client_name: formData.get('clientName'),
+                permissions: ['admin'],
+                timestamp: Math.floor(Date.now() / 1000),
+                provider_data: {{}}
+            }};
+            
+            try {{
+                // For now, generate a simple token (in production, this would validate credentials)
+                const accessToken = 'temp_access_token_' + Date.now();
+                const refreshToken = 'temp_refresh_token_' + Date.now();
+                
+                // Redirect back to meroctl with tokens
+                const callbackUrl = '{callback_url}';
+                const redirectUrl = new URL(callbackUrl);
+                redirectUrl.searchParams.set('access_token', accessToken);
+                redirectUrl.searchParams.set('refresh_token', refreshToken);
+                
+                window.location.href = redirectUrl.toString();
+            }} catch (error) {{
+                console.error('Authentication failed:', error);
+                alert('Authentication failed. Please try again.');
+            }}
+        }});
+    </script>
+</body>
+</html>
+        "#,
+        callback_url = callback_url
+    );
 
     (
         StatusCode::OK,
-        "OAuth callback - implement with your OAuth provider",
+        [("Content-Type", "text/html")],
+        html.into_bytes(),
     )
 }
 
@@ -549,6 +758,173 @@ pub async fn revoke_token_handler(
             error_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to revoke tokens: {}", err),
+                None,
+            )
+        }
+    }
+}
+
+/// Mock token request for CI and testing
+#[derive(Debug, Deserialize, Validate)]
+pub struct MockTokenRequest {
+    /// Client name for identification
+    #[validate(length(min = 1, message = "Client name is required"))]
+    pub client_name: String,
+
+    /// Permissions to grant (optional, defaults to admin)
+    pub permissions: Option<Vec<String>>,
+
+    /// Node URL this token should be valid for (optional)
+    pub node_url: Option<String>,
+
+    /// Token expiry override in seconds (optional, uses config defaults)
+    pub access_token_expiry: Option<u64>,
+
+    /// Refresh token expiry override in seconds (optional, uses config defaults)
+    pub refresh_token_expiry: Option<u64>,
+}
+
+/// Mock token handler for CI and testing
+///
+/// This endpoint generates JWT tokens without authentication for testing purposes.
+/// It should only be enabled in development/testing environments.
+///
+/// # Security Warning
+/// This endpoint bypasses all authentication and should NEVER be enabled in production.
+/// It creates temporary keys and generates valid JWT tokens for testing purposes.
+///
+/// # Arguments
+///
+/// * `state` - The application state
+/// * `request` - The mock token request
+///
+/// # Returns
+///
+/// * `impl IntoResponse` - The response containing access and refresh tokens
+pub async fn mock_token_handler(
+    state: Extension<Arc<AppState>>,
+    headers: HeaderMap,
+    ValidatedJson(mut request): ValidatedJson<MockTokenRequest>,
+) -> impl IntoResponse {
+    warn!("⚠️  MOCK TOKEN ENDPOINT ACCESSED - This should only be used for testing!");
+
+    // Check if mock endpoints are enabled in config
+    if !state.0.config.development.enable_mock_auth {
+        warn!("Mock token endpoint is disabled in configuration");
+        return error_response(StatusCode::NOT_FOUND, "Endpoint not found", None);
+    }
+
+    // Check authorization header if required
+    if state.0.config.development.mock_auth_require_header {
+        let auth_header = headers
+            .get("Authorization")
+            .and_then(|value| value.to_str().ok());
+
+        if let Some(required_value) = &state.0.config.development.mock_auth_header_value {
+            match auth_header {
+                Some(value) if value == required_value => {
+                    // Authorization header matches, continue
+                }
+                _ => {
+                    warn!("Mock token endpoint accessed without proper authorization");
+                    return error_response(
+                        StatusCode::UNAUTHORIZED,
+                        "Invalid or missing authorization for mock endpoint",
+                        None,
+                    );
+                }
+            }
+        } else if auth_header.is_none() {
+            warn!("Mock token endpoint requires authorization header but none provided");
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                "Authorization header required for mock endpoint",
+                None,
+            );
+        }
+    }
+
+    // Sanitize inputs
+    request.client_name = sanitize_string(&request.client_name);
+
+    if request.client_name.is_empty() {
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "Client name cannot be empty after sanitization",
+            None,
+        );
+    }
+
+    // Default permissions for mock tokens
+    let permissions = request
+        .permissions
+        .unwrap_or_else(|| vec!["admin".to_string()]);
+
+    // Generate a mock key ID for this client
+    let timestamp = chrono::Utc::now().timestamp();
+    let key_id = format!("mock_{}_{}", request.client_name, timestamp);
+
+    // Create a temporary root key that can be validated
+    // This allows the tokens to pass validation for e2e testing
+    let mock_key = Key::new_root_key_with_permissions(
+        format!("mock_public_key_{}", timestamp),
+        "mock_auth".to_string(),
+        permissions.clone(),
+        request.node_url.clone(),
+    );
+
+    // Store the temporary key so tokens can be validated
+    if let Err(err) = state.0.key_manager.set_key(&key_id, &mock_key).await {
+        error!("Failed to store mock key: {}", err);
+        return error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Failed to create mock key: {}", err),
+            None,
+        );
+    }
+
+    info!(
+        "Created temporary mock key: {} for client: {}",
+        key_id, request.client_name
+    );
+
+    // Generate tokens using the stored mock key (will pass validation)
+    match state
+        .0
+        .token_generator
+        .generate_token_pair(key_id.clone(), permissions, request.node_url)
+        .await
+    {
+        Ok((access_token, refresh_token)) => {
+            info!(
+                "Generated mock tokens for client '{}' with key_id '{}'",
+                request.client_name, key_id
+            );
+
+            let response = TokenResponse::new(access_token, refresh_token);
+
+            // Add warning headers
+            let mut headers = HeaderMap::new();
+            headers.insert("X-Mock-Token", "true".parse().unwrap());
+            headers.insert("X-Key-Id", key_id.parse().unwrap());
+            headers.insert(
+                "X-Warning",
+                "Mock token - for testing only".parse().unwrap(),
+            );
+
+            success_response(response, Some(headers))
+        }
+        Err(err) => {
+            error!("Failed to generate mock tokens: {}", err);
+
+            // Clean up the mock key on failure
+            if let Err(cleanup_err) = state.0.key_manager.delete_key(&key_id).await {
+                warn!("Failed to cleanup mock key {}: {}", key_id, cleanup_err);
+            }
+
+            error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to generate mock tokens",
                 None,
             )
         }
